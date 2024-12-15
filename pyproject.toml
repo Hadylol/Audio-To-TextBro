@@ -1,0 +1,19 @@
+[tool.pyright]
+venvPath = "."
+venv = "venv"
+[tool.ruff]
+# Set the maximum line length to 88 (PEP 8 recommendation)
+line-length = 88
+
+# Select which error or warning codes to check (E = Errors, W = Warnings)
+select = ["E", "F", "W"]
+
+# Ignore specific errors or warnings (e.g., E501 for line length, if you want to allow longer lines)
+ignore = ["E501"]
+
+# Exclude specific directories or files from being checked (e.g., migrations folder)
+exclude = ["migrations/*", "tests/*"]
+
+# Enable or disable specific checks
+# For example, disabling the check for unused imports
+extend-ignore = ["F401"]
