@@ -10,6 +10,8 @@ load_dotenv()
 
 filterwarnings(action="ignore",message=r".*CallbackQueryHandler",category=PTBUserWarning)
 
+
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -26,6 +28,7 @@ async def  start(update:Update, context: ContextTypes.DEFAULT_TYPE)-> None:
     if update.message and user :
         await update.message.reply_text(f"Hey {user.first_name} Welcome to Audio to Text Bot !  \n /help for more Commands!")
 
+print("hey")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
