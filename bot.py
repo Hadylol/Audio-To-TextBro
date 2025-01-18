@@ -1,11 +1,14 @@
 import os
+from pickle import STRING
+from posix import times
 from dotenv import load_dotenv
 import logging
-
 from telegram import CallbackQuery, File, ForceReply, InlineKeyboardButton, Message, Update,InlineKeyboardMarkup
 from telegram.ext import Application, CallbackContext, CallbackQueryHandler, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 from warnings import filterwarnings
 from telegram.warnings import PTBUserWarning
+import speech_recognition as sr
+from pydub import AudioSegment
 load_dotenv()
 
 filterwarnings(action="ignore",message=r".*CallbackQueryHandler",category=PTBUserWarning)
@@ -20,15 +23,14 @@ logger = logging.getLogger(__name__)
 
 WAITING_FOR_AUDIO = 2
 WAITING_FOR_METHOD = 1
+CONVERTING_TO_WAV =3
+TRANSFER_TO_TEXT = 4
 TO_TEXT_METHOD ="a_method"
-
-
 async def  start(update:Update, context: ContextTypes.DEFAULT_TYPE)-> None:
     user = update.effective_user
     if update.message and user :
         await update.message.reply_text(f"Hey {user.first_name} Welcome to Audio to Text Bot !  \n /help for more Commands!")
 
-print("hey")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -39,7 +41,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 "2. /cancel -Cancel the current operation."
             )
 
-
+async def convert_audio_to_wav(input_file,output_file="Converted.wav")->str:
+    try:
+        audio = AudioSegment.from_file(input_file.file_path)
+        audio.export(output_file,formate="wav")
+        return output_file
+    except Exception as e:
+        print(f"Error Converting file {e}")
+        return ""
 
 async def to_text_method(update:Update, context: ContextTypes.DEFAULT_TYPE)->int:
 # User choosing the Transcription AKA the method to convert the Audio to Text
@@ -54,7 +63,7 @@ async def to_text_method(update:Update, context: ContextTypes.DEFAULT_TYPE)->int
     ]
     reply_markup =InlineKeyboardMarkup(keyboard)
     if update.message:
-        await update.message.reply_text("Chosse Your preferable ",reply_markup=reply_markup)
+        await update.message.reply_text("Chosse Your preferable Method : ",reply_markup=reply_markup)
         return WAITING_FOR_METHOD
     return ConversationHandler.END
 
@@ -64,7 +73,7 @@ async def chosen_method(update:Update , context: ContextTypes.DEFAULT_TYPE)->int
     if query :
         await query.answer()
         if query.data:
-            await query.edit_message_text(text=f"Turning your Audio to Text Using : {query.data}")
+            await query.edit_message_text(text=f"Turning your Audio to Text Using : {query.data} \n /yes to confirm , /cancel to cancel the operation")
         else:
             await query.edit_message_text(text="Something Went wrong while Chossin your Method.\n /cancel and Retry !")
             return WAITING_FOR_METHOD
@@ -74,25 +83,25 @@ async def chosen_method(update:Update , context: ContextTypes.DEFAULT_TYPE)->int
 
 async def audio_to_text(update:Update, context: ContextTypes.DEFAULT_TYPE)->int:
     if update.message:
-        await update.message.reply_text("PLease send the Audio I'll convert it to text Buddy \n Send /cancel to stop the operation Buddy!")
-    return WAITING_FOR_METHOD
+        await update.message.reply_text("Provide your Audio file in these formats: Mp3, AAC, Ogg, WAV\n Send /cancel to Cancel the operation")
+    return WAITING_FOR_AUDIO
 
 async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Get the Audio file from  the user message."""
     if update.message:
         if update.message.audio:
             try:
-                audio = update.message.audio
-                file_id=audio.file_id
-                file =await context.bot.get_file(file_id)
-                file_path = os.path.join("/home/meep/Downloads",f"{file_id}.mp3")
-                print("this is the file path",file_path)
-                await file.download_to_drive(file_path)
-                await update.message.reply_text(f"audio file  received and saved as {file_path}")
+                user_audio = await update.message.audio.get_file()
+                converted_audio= await convert_audio_to_wav(user_audio)
+                print(converted_audio)
+                if converted_audio:
+                    await update.message.reply_text("the audio has been converted to wav")
+                else:
+                    await update.message.reply_text("Failed to process the audio file")
             except Exception as e :
                 logger.error(f"Error Downloading audio file :{e}")
                 await update.message.reply_text("An error occurred while processing the audio file Please try agian !")
-            return ConversationHandler.END
+            return CONVERTING_TO_WAV
         else:
             await update.message.reply_text("No audio file received please try again \n /cancel if you wanna cancel the operation !")
             return WAITING_FOR_AUDIO
@@ -120,8 +129,9 @@ def main() -> None:
             ],
             WAITING_FOR_AUDIO:[
                 MessageHandler(filters.AUDIO,audio_handler),
+                CommandHandler("yes",audio_to_text)
+                ],
 
-            ]
         },
         fallbacks=[CommandHandler('cancel',cancel)],
     )
