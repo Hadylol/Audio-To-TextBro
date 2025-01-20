@@ -1,3 +1,4 @@
+from genericpath import exists
 import os
 from pickle import STRING
 from posix import times
@@ -9,6 +10,7 @@ from warnings import filterwarnings
 from telegram.warnings import PTBUserWarning
 import speech_recognition as sr
 from pydub import AudioSegment
+import requests
 load_dotenv()
 
 filterwarnings(action="ignore",message=r".*CallbackQueryHandler",category=PTBUserWarning)
@@ -21,6 +23,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+DOWNLOAD_DIR = "DownloadsAudio"
 WAITING_FOR_AUDIO = 2
 WAITING_FOR_METHOD = 1
 CONVERTING_TO_WAV =3
@@ -41,14 +44,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 "2. /cancel -Cancel the current operation."
             )
 
-async def convert_audio_to_wav(input_file,output_file="Converted.wav")->str:
+async def convert_audio_to_wav(input_file_path,output_file="Converted.wav")->str:
     try:
-        audio = AudioSegment.from_file(input_file.file_path)
-        audio.export(output_file,formate="wav")
+        audio = AudioSegment.from_file(input_file_path)
+        audio.export(output_file,format="wav")
         return output_file
     except Exception as e:
         print(f"Error Converting file {e}")
         return ""
+    finally:
+        if input_file_path and os.path.exists(input_file_path):
+            os.remove(input_file_path)
 
 async def to_text_method(update:Update, context: ContextTypes.DEFAULT_TYPE)->int:
 # User choosing the Transcription AKA the method to convert the Audio to Text
@@ -91,9 +97,14 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if update.message:
         if update.message.audio:
             try:
-                user_audio = await update.message.audio.get_file()
-                converted_audio= await convert_audio_to_wav(user_audio)
-                print(converted_audio)
+                user_audio = update.message.audio
+                file_id = user_audio.file_id
+                file = await context.bot.get_file(file_id)
+                os.makedirs(DOWNLOAD_DIR,exist_ok=True)
+                file_path= os.path.join(DOWNLOAD_DIR,f"{user_audio.file_id}.wav")
+                print("This is the file path ",file_path)
+                await file.download_to_drive(file_path)
+                converted_audio= await convert_audio_to_wav(file_path)
                 if converted_audio:
                     await update.message.reply_text("the audio has been converted to wav")
                 else:
@@ -101,7 +112,7 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             except Exception as e :
                 logger.error(f"Error Downloading audio file :{e}")
                 await update.message.reply_text("An error occurred while processing the audio file Please try agian !")
-            return CONVERTING_TO_WAV
+            return ConversationHandler.END
         else:
             await update.message.reply_text("No audio file received please try again \n /cancel if you wanna cancel the operation !")
             return WAITING_FOR_AUDIO
