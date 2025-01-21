@@ -2,8 +2,10 @@ from genericpath import exists
 import os
 from pickle import STRING
 from posix import times
+from re import L
 from dotenv import load_dotenv
 import logging
+from speech_recognition.recognizers.google_cloud import recognize
 from telegram import CallbackQuery, File, ForceReply, InlineKeyboardButton, Message, Update,InlineKeyboardMarkup
 from telegram.ext import Application, CallbackContext, CallbackQueryHandler, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 from warnings import filterwarnings
@@ -26,8 +28,7 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_DIR = "DownloadsAudio"
 WAITING_FOR_AUDIO = 2
 WAITING_FOR_METHOD = 1
-CONVERTING_TO_WAV =3
-TRANSFER_TO_TEXT = 4
+TRANSFER_TO_TEXT = 3
 TO_TEXT_METHOD ="a_method"
 async def  start(update:Update, context: ContextTypes.DEFAULT_TYPE)-> None:
     user = update.effective_user
@@ -35,7 +36,18 @@ async def  start(update:Update, context: ContextTypes.DEFAULT_TYPE)-> None:
         await update.message.reply_text(f"Hey {user.first_name} Welcome to Audio to Text Bot !  \n /help for more Commands!")
 
 
+async def speech_reco(file_path )->None:
+    recognizer = sr.Recognizer()
 
+    with sr.AudioFile("Converted.wav") as source :
+        audio_data = recognizer.record(source)
+        try:
+            text =recognizer.recognize_sphinx(audio_data)
+            print(f"this is the text: {text}")
+        except sr.UnknownValueError:
+            print("couldnt understand the audio dude")
+        except sr.RequestError:
+            print("Error happened with sphinx recognizer ")
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
     if update.message:
@@ -105,14 +117,15 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 print("This is the file path ",file_path)
                 await file.download_to_drive(file_path)
                 converted_audio= await convert_audio_to_wav(file_path)
+                await speech_reco(converted_audio)
                 if converted_audio:
-                    await update.message.reply_text("the audio has been converted to wav")
+                    await update.message.reply_text(f"the audio has been converted to wav{converted_audio}")
                 else:
                     await update.message.reply_text("Failed to process the audio file")
             except Exception as e :
                 logger.error(f"Error Downloading audio file :{e}")
                 await update.message.reply_text("An error occurred while processing the audio file Please try agian !")
-            return ConversationHandler.END
+            return TRANSFER_TO_TEXT
         else:
             await update.message.reply_text("No audio file received please try again \n /cancel if you wanna cancel the operation !")
             return WAITING_FOR_AUDIO
@@ -142,6 +155,9 @@ def main() -> None:
                 MessageHandler(filters.AUDIO,audio_handler),
                 CommandHandler("yes",audio_to_text)
                 ],
+                TRANSFER_TO_TEXT:[
+
+                ]
 
         },
         fallbacks=[CommandHandler('cancel',cancel)],
