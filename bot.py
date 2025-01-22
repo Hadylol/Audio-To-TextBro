@@ -36,18 +36,20 @@ async def  start(update:Update, context: ContextTypes.DEFAULT_TYPE)-> None:
         await update.message.reply_text(f"Hey {user.first_name} Welcome to Audio to Text Bot !  \n /help for more Commands!")
 
 
-async def speech_reco(file_path )->None:
+async def speech_reco_sphinx(file_path ):
     recognizer = sr.Recognizer()
 
     with sr.AudioFile("Converted.wav") as source :
         audio_data = recognizer.record(source)
         try:
             text =recognizer.recognize_sphinx(audio_data)
-            print(f"this is the text: {text}")
+            return text
         except sr.UnknownValueError:
             print("couldnt understand the audio dude")
         except sr.RequestError:
             print("Error happened with sphinx recognizer ")
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
     if update.message:
@@ -85,19 +87,19 @@ async def to_text_method(update:Update, context: ContextTypes.DEFAULT_TYPE)->int
         return WAITING_FOR_METHOD
     return ConversationHandler.END
 
-async def chosen_method(update:Update , context: ContextTypes.DEFAULT_TYPE)->int:
+async def chosen_method(update:Update , context: ContextTypes.DEFAULT_TYPE):
 #Saving User chosen method
+    global TO_TEXT_METHOD
     query= update.callback_query
     if query :
         await query.answer()
         if query.data:
+            TO_TEXT_METHOD=query.data
             await query.edit_message_text(text=f"Turning your Audio to Text Using : {query.data} \n /yes to confirm , /cancel to cancel the operation")
         else:
             await query.edit_message_text(text="Something Went wrong while Chossin your Method.\n /cancel and Retry !")
             return WAITING_FOR_METHOD
         return WAITING_FOR_AUDIO
-    return WAITING_FOR_METHOD
-
 
 async def audio_to_text(update:Update, context: ContextTypes.DEFAULT_TYPE)->int:
     if update.message:
@@ -106,8 +108,8 @@ async def audio_to_text(update:Update, context: ContextTypes.DEFAULT_TYPE)->int:
 
 async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Get the Audio file from  the user message."""
-    if update.message:
-        if update.message.audio:
+    if update.message :
+        if update.message.audio :
             try:
                 user_audio = update.message.audio
                 file_id = user_audio.file_id
@@ -117,18 +119,20 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 print("This is the file path ",file_path)
                 await file.download_to_drive(file_path)
                 converted_audio= await convert_audio_to_wav(file_path)
-                await speech_reco(converted_audio)
+                print(TO_TEXT_METHOD)
+                text = await speech_reco_sphinx(converted_audio)
                 if converted_audio:
-                    await update.message.reply_text(f"the audio has been converted to wav{converted_audio}")
+                    await update.message.reply_text(f"The text :/n {text}")
                 else:
                     await update.message.reply_text("Failed to process the audio file")
             except Exception as e :
                 logger.error(f"Error Downloading audio file :{e}")
                 await update.message.reply_text("An error occurred while processing the audio file Please try agian !")
-            return TRANSFER_TO_TEXT
+            return ConversationHandler.END
         else:
             await update.message.reply_text("No audio file received please try again \n /cancel if you wanna cancel the operation !")
             return WAITING_FOR_AUDIO
+    print("FINSHED")
     return ConversationHandler.END
 
 
@@ -153,7 +157,7 @@ def main() -> None:
             ],
             WAITING_FOR_AUDIO:[
                 MessageHandler(filters.AUDIO,audio_handler),
-                CommandHandler("yes",audio_to_text)
+                CommandHandler("yes",audio_to_text),
                 ],
                 TRANSFER_TO_TEXT:[
 
