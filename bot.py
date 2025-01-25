@@ -2,17 +2,15 @@ from genericpath import exists
 import os
 from pickle import STRING
 from posix import times
-from re import L
 from dotenv import load_dotenv
 import logging
-from speech_recognition.recognizers.google_cloud import recognize
+
 from telegram import CallbackQuery, File, ForceReply, InlineKeyboardButton, Message, Update,InlineKeyboardMarkup
 from telegram.ext import Application, CallbackContext, CallbackQueryHandler, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 from warnings import filterwarnings
 from telegram.warnings import PTBUserWarning
 import speech_recognition as sr
 from pydub import AudioSegment
-import requests
 load_dotenv()
 
 filterwarnings(action="ignore",message=r".*CallbackQueryHandler",category=PTBUserWarning)
@@ -43,12 +41,15 @@ async def speech_reco_sphinx(file_path ):
         audio_data = recognizer.record(source)
         try:
             text =recognizer.recognize_sphinx(audio_data)
+            print(text)
             return text
         except sr.UnknownValueError:
             print("couldnt understand the audio dude")
         except sr.RequestError:
             print("Error happened with sphinx recognizer ")
 
+async def speech_whisper(file_path):
+    return "WHISPER hehe"
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
@@ -120,9 +121,13 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 await file.download_to_drive(file_path)
                 converted_audio= await convert_audio_to_wav(file_path)
                 print(TO_TEXT_METHOD)
-                text = await speech_reco_sphinx(converted_audio)
-                if converted_audio:
-                    await update.message.reply_text(f"The text :/n {text}")
+                text = " "
+                if TO_TEXT_METHOD =="speech_recognition":
+                    text = await speech_reco_sphinx(converted_audio)
+                if TO_TEXT_METHOD =="whisper":
+                    text = await speech_whisper(converted_audio)
+                if text :
+                    await update.message.reply_text(f"The Transcript :\n {text}")
                 else:
                     await update.message.reply_text("Failed to process the audio file")
             except Exception as e :
