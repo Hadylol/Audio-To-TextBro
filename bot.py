@@ -1,10 +1,15 @@
+from ast import keyword
+from contextvars import Context
 from genericpath import exists
 import os
 from pickle import STRING
 from posix import times
 from dotenv import load_dotenv
 import logging
-
+import warnings
+import asyncio
+from telegram._games.callbackgame import CallbackGame
+import whisper
 from telegram import CallbackQuery, File, ForceReply, InlineKeyboardButton, Message, Update,InlineKeyboardMarkup
 from telegram.ext import Application, CallbackContext, CallbackQueryHandler, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 from warnings import filterwarnings
@@ -15,7 +20,8 @@ load_dotenv()
 
 filterwarnings(action="ignore",message=r".*CallbackQueryHandler",category=PTBUserWarning)
 
-
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -24,10 +30,13 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 DOWNLOAD_DIR = "DownloadsAudio"
-WAITING_FOR_AUDIO = 2
-WAITING_FOR_METHOD = 1
-TRANSFER_TO_TEXT = 3
+WAITING_FOR_AUDIO = 3
+WAITING_FOR_LANG=1
+WAITING_FOR_METHOD =2
+CONFIRM_METHOD=5
+TRANSFER_TO_TEXT = 4
 TO_TEXT_METHOD ="a_method"
+CHOSEN_LANG ="a_lang"
 async def  start(update:Update, context: ContextTypes.DEFAULT_TYPE)-> None:
     user = update.effective_user
     if update.message and user :
@@ -49,7 +58,14 @@ async def speech_reco_sphinx(file_path ):
             print("Error happened with sphinx recognizer ")
 
 async def speech_whisper(file_path):
-    return "WHISPER hehe"
+    model = whisper.load_model("base")
+    try :
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(None,model.transcribe,file_path)
+        print(text)
+        return text["text"]
+    except Exception as e:
+        return f"Error happen With openAI whisper {e}"
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
@@ -70,6 +86,20 @@ async def convert_audio_to_wav(input_file_path,output_file="Converted.wav")->str
     finally:
         if input_file_path and os.path.exists(input_file_path):
             os.remove(input_file_path)
+async def choose_lang(update:Update,context:ContextTypes.DEFAULT_TYPE):
+    keyboard= [
+        [
+        InlineKeyboardButton("English",callback_data="english"),
+        InlineKeyboardButton("Arabic",callback_data="arabic"),
+        InlineKeyboardButton("French(tklh)",callback_data="french"),
+        InlineKeyboardButton("Spanish",callback_data="spanish"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    if update.message:
+        await update.message.reply_text("Choose Your Langauge :",reply_markup=reply_markup)
+        return WAITING_FOR_LANG
+    return ConversationHandler.END
 
 async def to_text_method(update:Update, context: ContextTypes.DEFAULT_TYPE)->int:
 # User choosing the Transcription AKA the method to convert the Audio to Text
@@ -85,8 +115,20 @@ async def to_text_method(update:Update, context: ContextTypes.DEFAULT_TYPE)->int
     reply_markup =InlineKeyboardMarkup(keyboard)
     if update.message:
         await update.message.reply_text("Chosse Your preferable Method : ",reply_markup=reply_markup)
-        return WAITING_FOR_METHOD
+        return CONFIRM_METHOD
     return ConversationHandler.END
+async def chosen_lang(update:Update,context:ContextTypes.DEFAULT_TYPE):
+    global CHOSEN_LANG
+    query =update.callback_query
+    if query:
+        await query.answer()
+        if query.data:
+            CHOSEN_LANG= query.data
+            await query.edit_message_text(text=f"Your Audio will be in : {query.data} \n /yes to confirm , /cancel to cancel the operation")
+            return WAITING_FOR_METHOD
+        else:
+            await query.edit_message_text(text="Something Went worng \n /cancel and Retry !")
+            return WAITING_FOR_LANG
 
 async def chosen_method(update:Update , context: ContextTypes.DEFAULT_TYPE):
 #Saving User chosen method
@@ -155,10 +197,16 @@ def main() -> None:
     bot = Application.builder().token(BOT_KEY).build()
     #Conversation Handler with states
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("AudioToText",to_text_method)],
+        entry_points=[CommandHandler("AudioToText",choose_lang)],
         states={
+            WAITING_FOR_LANG:[
+             CallbackQueryHandler(chosen_lang)
+            ],
             WAITING_FOR_METHOD:[
-                CallbackQueryHandler(chosen_method)
+                MessageHandler(filters.ALL,to_text_method)
+            ],
+            CONFIRM_METHOD:[
+             CallbackQueryHandler(chosen_method)
             ],
             WAITING_FOR_AUDIO:[
                 MessageHandler(filters.AUDIO,audio_handler),
