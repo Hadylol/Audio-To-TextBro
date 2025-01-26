@@ -4,10 +4,12 @@ from genericpath import exists
 import os
 from pickle import STRING
 from posix import times
+from urllib.error import ContentTooShortError
 from dotenv import load_dotenv
 import logging
 import warnings
 import asyncio
+from numpy import log
 from telegram._games.callbackgame import CallbackGame
 import whisper
 from telegram import CallbackQuery, File, ForceReply, InlineKeyboardButton, Message, Update,InlineKeyboardMarkup
@@ -124,7 +126,11 @@ async def chosen_lang(update:Update,context:ContextTypes.DEFAULT_TYPE):
         await query.answer()
         if query.data:
             CHOSEN_LANG= query.data
-            await query.edit_message_text(text=f"Your Audio will be in : {query.data} \n /yes to confirm , /cancel to cancel the operation")
+            keyboard = [
+                            [InlineKeyboardButton("Cancel", callback_data="/cancel")]
+                        ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(text=f"Your Audio will be in : {query.data} \n /yes to confirm ,",reply_markup=reply_markup)
             return WAITING_FOR_METHOD
         else:
             await query.edit_message_text(text="Something Went worng \n /cancel and Retry !")
@@ -149,36 +155,54 @@ async def audio_to_text(update:Update, context: ContextTypes.DEFAULT_TYPE)->int:
         await update.message.reply_text("Provide your Audio file in these formats: Mp3, AAC, Ogg, WAV\n Send /cancel to Cancel the operation")
     return WAITING_FOR_AUDIO
 
+
+
+
+
 async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Get the Audio file from  the user message."""
-    if update.message :
-        if update.message.audio :
+    file_path = None
+    file_id =None
+
+    user = update.effective_user
+    if update.message and user:
+        if update.message.voice:
+            print("VOICE")
+            try:
+                print("WE HERE")
+                user_voice = update.message.voice
+                file_id = user_voice.file_id
+                os.makedirs(DOWNLOAD_DIR,exist_ok=True)
+                file_path =os.path.join(DOWNLOAD_DIR,f"{file_id}.ogg")
+                print("WE GOT THE voice ")
+            except Exception:
+                logger.error("Error getting the voice file")
+
+        if update.message.audio:
             try:
                 user_audio = update.message.audio
                 file_id = user_audio.file_id
-                file = await context.bot.get_file(file_id)
                 os.makedirs(DOWNLOAD_DIR,exist_ok=True)
-                file_path= os.path.join(DOWNLOAD_DIR,f"{user_audio.file_id}.wav")
-                print("This is the file path ",file_path)
-                await file.download_to_drive(file_path)
-                converted_audio= await convert_audio_to_wav(file_path)
-                print(TO_TEXT_METHOD)
-                text = " "
-                if TO_TEXT_METHOD =="speech_recognition":
-                    text = await speech_reco_sphinx(converted_audio)
-                if TO_TEXT_METHOD =="whisper":
-                    text = await speech_whisper(converted_audio)
-                if text :
-                    await update.message.reply_text(f"The Transcript :\n {text}")
-                else:
-                    await update.message.reply_text("Failed to process the audio file")
-            except Exception as e :
-                logger.error(f"Error Downloading audio file :{e}")
-                await update.message.reply_text("An error occurred while processing the audio file Please try agian !")
-            return ConversationHandler.END
-        else:
-            await update.message.reply_text("No audio file received please try again \n /cancel if you wanna cancel the operation !")
-            return WAITING_FOR_AUDIO
+                file_path =os.path.join(DOWNLOAD_DIR,f"{file_id}.ogg")
+                print("WE GOT THE AUDIO")
+            except Exception:
+                logger.error("Error getting the voice file")
+
+        if file_path and file_id:
+            print("HEYYY THEREE ITS ME")
+            file = await context.bot.get_file(file_id)
+            await file.download_to_drive(file_path)
+            converted_audio= await convert_audio_to_wav(file_path)
+            print(TO_TEXT_METHOD)
+            text = " "
+            if TO_TEXT_METHOD =="speech_recognition":
+                text = await speech_reco_sphinx(converted_audio)
+            if TO_TEXT_METHOD =="whisper":
+                text = await speech_whisper(converted_audio)
+            if text :
+                await update.message.reply_text(f"{user.name} :\n {text}")
+            else:
+                await update.message.reply_text("Failed to process the audio file")
     print("FINSHED")
     return ConversationHandler.END
 
@@ -203,13 +227,13 @@ def main() -> None:
              CallbackQueryHandler(chosen_lang)
             ],
             WAITING_FOR_METHOD:[
-                MessageHandler(filters.ALL,to_text_method)
+                CommandHandler("yes",to_text_method)
             ],
             CONFIRM_METHOD:[
              CallbackQueryHandler(chosen_method)
             ],
             WAITING_FOR_AUDIO:[
-                MessageHandler(filters.AUDIO,audio_handler),
+                MessageHandler(filters.VOICE|filters.AUDIO,audio_handler),
                 CommandHandler("yes",audio_to_text),
                 ],
                 TRANSFER_TO_TEXT:[
